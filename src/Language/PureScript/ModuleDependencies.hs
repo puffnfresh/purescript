@@ -15,6 +15,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Language.PureScript.ModuleDependencies (
+  graphModules,
   sortModules,
   ModuleGraph
 ) where
@@ -33,19 +34,18 @@ import Language.PureScript.Errors
 -- |
 -- A list of modules with their dependencies
 --
-type ModuleGraph = [(ModuleName, [ModuleName])]
+type ModuleGraph = [(Module, ModuleName, [ModuleName])]
 
 -- |
 -- Sort a collection of modules based on module dependencies.
 --
 -- Reports an error if the module graph contains a cycle.
 --
-sortModules :: (MonadError MultipleErrors m) => [Module] -> m ([Module], ModuleGraph)
-sortModules ms = do
-  let verts = map (\m@(Module _ _ ds _) -> (m, getModuleName m, nub (concatMap usedModules ds))) ms
-  ms' <- mapM toModule $ stronglyConnComp verts
-  let moduleGraph = map (\(_, mn, deps) -> (mn, deps)) verts
-  return (ms', moduleGraph)
+graphModules :: [Module] -> ModuleGraph
+graphModules ms = map (\m@(Module _ _ ds _) -> (m, getModuleName m, nub (concatMap usedModules ds))) ms
+
+sortModules :: (MonadError MultipleErrors m) => ModuleGraph -> m [Module]
+sortModules = mapM toModule . stronglyConnComp
 
 -- |
 -- Calculate a list of used modules based on explicit imports and qualified names

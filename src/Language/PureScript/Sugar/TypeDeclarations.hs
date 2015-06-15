@@ -34,7 +34,7 @@ import Language.PureScript.Traversals
 -- |
 -- Replace all top level type declarations in a module with type annotations
 --
-desugarTypeDeclarationsModule :: (Functor m, Applicative m, MonadError MultipleErrors m) => [Module] -> m [Module]
+desugarTypeDeclarationsModule :: (Functor m, Applicative m, MonadError MultipleErrors m, Traversable f) => f Module -> m (f Module)
 desugarTypeDeclarationsModule ms = forM ms $ \(Module coms name ds exps) ->
   rethrow (onErrorMessages (ErrorInModule name)) $
     Module coms name <$> desugarTypeDeclarations ds <*> pure exps

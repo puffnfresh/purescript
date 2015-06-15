@@ -57,8 +57,8 @@ parseAndDesugar inputFiles depsFiles callback = do
     ms <- throwLeft ParseError eParsed
 
     let depsModules = getDepsModuleNames (map (\(fp, m) -> (,m) <$> fp) ms)
-    let eSorted = P.sortModules . map (importPrim . snd) $ ms
-    (ms', _) <- throwLeft SortModulesError eSorted
+    let eSorted = P.sortModules . P.graphModules $ map (importPrim . snd) $ ms
+    ms' <- throwLeft SortModulesError eSorted
 
     modules <- throwLeft DesugarError (desugar ms')
     let modules' = map (addPackage depsModules) modules

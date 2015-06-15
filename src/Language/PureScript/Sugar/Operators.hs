@@ -49,7 +49,7 @@ import qualified Language.PureScript.Constants as C
 -- |
 -- Remove explicit parentheses and reorder binary operator applications
 --
-rebracket :: (Applicative m, MonadError MultipleErrors m) => [Module] -> m [Module]
+rebracket :: (Applicative m, MonadError MultipleErrors m, Traversable f) => f Module -> m (f Module)
 rebracket ms = do
   let fixities = concatMap collectFixities ms
   ensureNoDuplicates $ map (\(i, pos, _) -> (i, pos)) fixities

@@ -30,6 +30,10 @@ import Control.Monad.Trans.Except
 import Control.Monad.Reader
 import Control.Monad.Writer
 
+import Control.Concurrent
+import Control.Concurrent.STM.TVar
+import Control.Monad.STM
+
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock
 import Data.Traversable (traverse)
@@ -68,7 +72,7 @@ buildMakeActions :: FilePath
                  -> Bool
                  -> P.MakeActions Make
 buildMakeActions outputDir filePathMap foreigns usePrefix =
-  P.MakeActions getInputTimestamp getOutputTimestamp readExterns codegen progress
+  P.MakeActions getInputTimestamp getOutputTimestamp readExterns codegen progress inParallel initParallel
   where
 
   getInputTimestamp :: P.ModuleName -> Make (Either P.RebuildPolicy (Maybe UTCTime))
@@ -136,3 +140,34 @@ buildMakeActions outputDir filePathMap foreigns usePrefix =
 
   progress :: String -> Make ()
   progress = liftIO . putStrLn
+
+  inParallel :: [Make ()] -> Make ()
+  inParallel ms = do
+    options <- ask
+    mvars <- liftIO $ traverse (fork options) ms
+    liftIO $ mapM_ takeMVar mvars
+    where
+    fork options m = do
+      mvar <- newEmptyMVar
+      void $ forkFinally (void $ runMake options m) (\e -> mapM_ print (either Right Left e) >> putMVar mvar ())
+      return mvar
+
+  initParallel :: P.SupplyVar -> P.ReverseDependencies -> Make (P.ParallelMakeActions Make)
+  initParallel var revDeps = liftIO $ do
+    (var', revDeps', env') <- atomically $ (,,) <$> newTVar var
+                                                <*> newTVar revDeps
+                                                <*> newTVar P.initEnvironment
+    return $ P.ParallelMakeActions (freshVar var') (finishModule revDeps' env')
+    where
+    freshVar var' =
+      liftIO . atomically $ do
+        modifyTVar var' succ
+        readTVar var'
+    finishModule revDeps' env' mn env = do
+      liftIO . atomically $ do
+        modifyTVar revDeps' (P.markFinished mn)
+        (next, r') <- P.findReady <$> readTVar revDeps'
+        writeTVar revDeps' r'
+        modifyTVar env' (<> env)
+        env'' <- readTVar env'
+        return (next, env'')

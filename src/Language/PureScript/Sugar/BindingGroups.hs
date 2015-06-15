@@ -41,7 +41,7 @@ import Language.PureScript.Errors
 -- |
 -- Replace all sets of mutually-recursive declarations in a module with binding groups
 --
-createBindingGroupsModule :: (Functor m, Applicative m, MonadError MultipleErrors m) => [Module] -> m [Module]
+createBindingGroupsModule :: (Functor m, Applicative m, MonadError MultipleErrors m, Traversable f) => f Module -> m (f Module)
 createBindingGroupsModule = mapM $ \(Module coms name ds exps) -> Module coms name <$> createBindingGroups name ds <*> pure exps
 
 -- |

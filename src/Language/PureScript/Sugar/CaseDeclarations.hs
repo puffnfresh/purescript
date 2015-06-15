@@ -44,7 +44,7 @@ isLeft (Right _) = False
 -- |
 -- Replace all top-level binders in a module with case expressions.
 --
-desugarCasesModule :: (Functor m, Applicative m, MonadSupply m, MonadError MultipleErrors m) => [Module] -> m [Module]
+desugarCasesModule :: (Functor m, Applicative m, MonadSupply m, MonadError MultipleErrors m, Traversable f) => f Module -> m (f Module)
 desugarCasesModule ms = forM ms $ \(Module coms name ds exps) ->
   rethrow (onErrorMessages (ErrorInModule name)) $
     Module coms name <$> (desugarCases <=< desugarAbs $ ds) <*> pure exps

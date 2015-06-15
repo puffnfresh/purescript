@@ -68,7 +68,7 @@ buildMakeActions :: M.Map P.ModuleName (Either P.RebuildPolicy String)
                  -> M.Map P.ModuleName P.ForeignJS
                  -> P.MakeActions Make
 buildMakeActions filePathMap foreigns =
-  P.MakeActions getInputTimestamp getOutputTimestamp readExterns codegen progress
+  P.MakeActions getInputTimestamp getOutputTimestamp readExterns codegen progress (error "TODO")
   where
 
   getInputTimestamp :: P.ModuleName -> Make (Either P.RebuildPolicy (Maybe UTCTime))

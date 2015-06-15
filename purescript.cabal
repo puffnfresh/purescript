@@ -155,7 +155,7 @@ executable psc
     ghc-options: -Wall -O2 -fno-warn-unused-do-bind
 
 executable psc-make
-    build-depends: base >=4 && <5, containers -any, directory -any, filepath -any,
+    build-depends: base >=4 && <5, containers -any, directory -any, filepath -any, stm -any,
                    mtl -any, optparse-applicative >= 0.10.0, parsec -any, purescript -any,
                    time -any, transformers -any, transformers-compat -any, Glob >= 0.7 && < 0.8
     main-is: Main.hs
@@ -164,23 +164,24 @@ executable psc-make
     other-modules: Make
     ghc-options: -Wall -O2 -fno-warn-unused-do-bind
 
-executable psci
-    build-depends: base >=4 && <5, containers -any, directory -any, filepath -any,
-                   mtl -any, optparse-applicative >= 0.10.0, parsec -any,
-                   haskeline >= 0.7.0.0, purescript -any, transformers -any,
-                   transformers-compat -any, process -any, time -any, Glob -any
+-- executable psci
+--     build-depends: base >=4 && <5, containers -any, directory -any, filepath -any,
+--                    mtl -any, optparse-applicative >= 0.10.0, parsec -any,
+--                    haskeline >= 0.7.0.0, purescript -any, transformers -any,
+--                    transformers-compat -any, process -any, time -any, Glob -any,
+--                    stm -any
 
-    main-is: Main.hs
-    buildable: True
-    hs-source-dirs: psci psci/main
-    other-modules: Types
-                   Parser
-                   Directive
-                   Completion
-                   PSCi
-                   Make
-                   IO
-    ghc-options: -Wall -O2
+--     main-is: Main.hs
+--     buildable: True
+--     hs-source-dirs: psci psci/main
+--     other-modules: Types
+--                    Parser
+--                    Directive
+--                    Completion
+--                    PSCi
+--                    Make
+--                    IO
+--     ghc-options: -Wall -O2
 
 executable psc-docs
     build-depends: base >=4 && <5, purescript -any,
@@ -230,14 +231,14 @@ test-suite tests
     buildable: True
     hs-source-dirs: tests
 
-test-suite psci-tests
-    build-depends: base >=4 && <5, containers -any, directory -any, filepath -any,
-                   mtl -any, optparse-applicative >= 0.10.0, parsec -any,
-                   haskeline >= 0.7.0.0, purescript -any, transformers -any,
-                   transformers-compat -any, process -any, HUnit -any, time -any, 
-                   Glob -any
-    type: exitcode-stdio-1.0
-    main-is: Main.hs
-    buildable: True
-    hs-source-dirs: psci psci/tests
-    ghc-options: -Wall
+-- test-suite psci-tests
+--     build-depends: base >=4 && <5, containers -any, directory -any, filepath -any,
+--                    mtl -any, optparse-applicative >= 0.10.0, parsec -any,
+--                    haskeline >= 0.7.0.0, purescript -any, transformers -any,
+--                    transformers-compat -any, process -any, HUnit -any, time -any, 
+--                    Glob -any
+--     type: exitcode-stdio-1.0
+--     main-is: Main.hs
+--     buildable: True
+--     hs-source-dirs: psci psci/tests
+--     ghc-options: -Wall

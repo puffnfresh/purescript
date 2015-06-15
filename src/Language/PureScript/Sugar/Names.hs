@@ -151,7 +151,7 @@ addExport what exports name =
 -- |
 -- Replaces all local names with qualified names within a set of modules.
 --
-desugarImports :: forall m. (Applicative m, MonadError MultipleErrors m) => [Module] -> m [Module]
+desugarImports :: forall m f. (Applicative m, MonadError MultipleErrors m, Traversable f) => f Module -> m (f Module)
 desugarImports modules = do
   unfilteredExports <- findExports modules
   exports <- foldM filterModuleExports unfilteredExports modules
@@ -309,7 +309,7 @@ renameInModule imports exports (Module coms mn decls exps) =
 -- |
 -- Finds all exported declarations in a set of modules.
 --
-findExports :: forall m. (Applicative m, MonadError MultipleErrors m) => [Module] -> m ExportEnvironment
+findExports :: forall m f. (Applicative m, MonadError MultipleErrors m, Foldable f) => f Module -> m ExportEnvironment
 findExports = foldM addModule $ M.singleton (ModuleName [ProperName C.prim]) primExports
   where
 

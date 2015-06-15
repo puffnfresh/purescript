@@ -18,6 +18,8 @@ module Language.PureScript.Environment where
 
 import Data.Data
 import Data.Maybe (fromMaybe)
+import Data.Function (on)
+import Data.Monoid
 import qualified Data.Map as M
 
 import Language.PureScript.Kinds
@@ -61,6 +63,18 @@ data Environment = Environment {
 --
 initEnvironment :: Environment
 initEnvironment = Environment M.empty primTypes M.empty M.empty M.empty M.empty
+
+instance Monoid Environment where
+  mempty = initEnvironment
+  a `mappend` b = Environment (appended names)
+                              (appended types)
+                              (appended dataConstructors)
+                              (appended typeSynonyms)
+                              (via (M.unionWith (<>)) typeClassDictionaries)
+                              (appended typeClasses)
+    where via f g = on f g a b
+          appended :: Monoid a => (Environment -> a) -> a
+          appended = via (<>)
 
 -- |
 -- The visibility of a name in scope

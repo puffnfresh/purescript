@@ -25,15 +25,21 @@ module Language.PureScript
   , compileJS
   , RebuildPolicy(..)
   , MakeActions(..)
+  , ParallelMakeActions(..)
   , SupplyVar()
   , Externs()
+  , ReverseDependencies()
   , make
   , version
+
+  , markFinished
+  , findReady
   ) where
 
 import Data.Function (on)
-import Data.List (sortBy, groupBy, intercalate)
-import Data.Maybe (fromMaybe)
+import Data.List (delete, sortBy, groupBy, intercalate)
+import Data.Monoid ((<>))
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Time.Clock
 import Data.Version (Version)
 import qualified Data.Map as M
@@ -46,6 +52,8 @@ import Control.Monad.Error.Class (MonadError(..))
 import Control.Monad.Reader
 import Control.Monad.Writer
 import Control.Monad.Supply.Class (MonadSupply, fresh)
+
+import Data.Foldable (traverse_)
 
 import Language.PureScript.AST as P
 import Language.PureScript.Comments as P
@@ -70,6 +78,8 @@ import qualified Language.PureScript.Constants as C
 import qualified Language.PureScript.CodeGen.JS as J
 
 import qualified Paths_purescript as Paths
+
+import Debug.Trace (traceShow)
 
 -- |
 -- Compile a collection of modules
@@ -99,7 +109,7 @@ compile' :: (Functor m, Applicative m, MonadError MultipleErrors m, MonadWriter 
 compile' env ms = do
   additional <- asks optionsAdditional
   mainModuleIdent <- asks (fmap moduleNameFromString . optionsMain)
-  (sorted, _) <- sortModules $ map importPrim ms
+  sorted <- sortModules . graphModules $ map importPrim ms
   mapM_ lint sorted
   (desugared, nextVar) <- runSupplyT 0 $ desugar sorted
   (elaborated, env') <- runCheck' env $ forM desugared $ typeCheckModule mainModuleIdent
@@ -185,6 +195,15 @@ data MakeActions m = MakeActions {
   -- Respond to a progress update.
   --
   , progress :: String -> m ()
+
+  , inParallel :: [m ()] -> m ()
+
+  , initParallel :: SupplyVar -> ReverseDependencies -> m (ParallelMakeActions m)
+  }
+
+data ParallelMakeActions m = ParallelMakeActions {
+    freshVar :: m SupplyVar
+  , finishModule :: ModuleName -> Environment -> m (S.Set ModuleName, Environment)
   }
 
 -- |
@@ -217,7 +236,7 @@ make :: forall m. (Functor m, Applicative m, Monad m, MonadReader (P.Options P.M
      -> [(Either RebuildPolicy FilePath, Module)]
      -> m Environment
 make MakeActions{..} ms = do
-  (sorted, graph) <- sortModules $ map (importPrim . snd) ms
+  sorted <- sortModules graph
   mapM_ lint sorted
   toRebuild <- foldM (\s (Module _ moduleName' _ _) -> do
     inputTimestamp <- getInputTimestamp moduleName'
@@ -227,51 +246,60 @@ make MakeActions{..} ms = do
       (Left RebuildNever, Just _) -> s
       _ -> S.insert moduleName' s) S.empty sorted
 
-  marked <- rebuildIfNecessary (reverseDependencies graph) toRebuild sorted
-  (desugared, nextVar) <- runSupplyT 0 $ zip (map fst marked) <$> desugar (map snd marked)
-  evalSupplyT nextVar $ go initEnvironment desugared
+  (desugared, nextVar) <- runSupplyT 0 $ desugar sorted
+
+  let modules = M.fromList $ (\m@(Module _ mn _ _) -> (mn, m)) <$> desugared
+      (mns, revDeps') = findReady $ rebuild toRebuild revDeps
+  pmake <- initParallel nextVar (rebuild toRebuild revDeps')
+  inParallel . fmap (getWork (flip M.lookup modules) pmake initEnvironment) $ S.toList mns
+
+  traceShow "TODO" $ return initEnvironment
+
   where
 
-  go :: Environment -> [(Bool, Module)] -> SupplyT m Environment
-  go env [] = return env
-  go env ((False, m) : ms') = do
-    (_, env') <- lift . runCheck' env $ typeCheckModule Nothing m
-    go env' ms'
-  go env ((True, m@(Module coms moduleName' _ exps)) : ms') = do
-    lift $ progress $ "Compiling " ++ runModuleName moduleName'
-    (Module _ _ elaborated _, env') <- lift . runCheck' env $ typeCheckModule Nothing m
-    regrouped <- createBindingGroups moduleName' . collapseBindingGroups $ elaborated
-    let mod' = Module coms moduleName' regrouped exps
-        corefn = CoreFn.moduleToCoreFn env' mod'
-        [renamed] = renameInModules [corefn]
-        exts = moduleToPs mod' env'
-    nextVar <- fresh
-    lift $ codegen renamed env' nextVar exts
-    go env' ms'
+  graph :: ModuleGraph
+  graph = graphModules $ map (importPrim . snd) ms
 
-  rebuildIfNecessary :: M.Map ModuleName [ModuleName] -> S.Set ModuleName -> [Module] -> m [(Bool, Module)]
-  rebuildIfNecessary _ _ [] = return []
-  rebuildIfNecessary graph toRebuild (m@(Module _ moduleName' _ _) : ms') | moduleName' `S.member` toRebuild = do
-    let deps = fromMaybe [] $ moduleName' `M.lookup` graph
-        toRebuild' = toRebuild `S.union` S.fromList deps
-    (:) (True, m) <$> rebuildIfNecessary graph toRebuild' ms'
-  rebuildIfNecessary graph toRebuild (Module _ moduleName' _ _ : ms') = do
-    (path, externs) <- readExterns moduleName'
-    externsModules <- fmap (map snd) . alterErrors $ P.parseModulesFromFiles id [(path, externs)]
-    case externsModules of
-      [m'@(Module _ moduleName'' _ _)] | moduleName'' == moduleName' -> (:) (False, m') <$> rebuildIfNecessary graph toRebuild ms'
-      _ -> throwError . errorMessage . InvalidExternsFile $ path
+  revDeps :: ReverseDependencies
+  revDeps = reverseDependencies graph
+
+  getWork :: (ModuleName -> Maybe Module) -> ParallelMakeActions m -> Environment -> ModuleName -> m ()
+  getWork findModule ParallelMakeActions{..} = runModule
     where
-    alterErrors = flip catchError $ \(MultipleErrors errs) ->
-      throwError . MultipleErrors $ flip map errs $ \e -> case e of
-        SimpleErrorWrapper (ErrorParsingModule err) -> SimpleErrorWrapper (ErrorParsingExterns err)
-        _ -> e
+    runModule e = traverse_ (getWork' e) . findModule
 
-reverseDependencies :: ModuleGraph -> M.Map ModuleName [ModuleName]
-reverseDependencies g = combine [ (dep, mn) | (mn, deps) <- g, dep <- deps ]
+    getWork' env m@(Module coms moduleName' _ exps) = do
+      (Module _ _ elaborated _, env') <- runCheck' env $ typeCheckModule Nothing m
+
+      progress $ "Compiling " ++ runModuleName moduleName'
+      regrouped <- createBindingGroups moduleName' . collapseBindingGroups $ elaborated
+
+      let mod' = Module coms moduleName' regrouped exps
+          corefn = CoreFn.moduleToCoreFn env' mod'
+          [renamed] = renameInModules [corefn]
+          exts = moduleToPs mod' env'
+      nextVar <- freshVar
+      codegen renamed env' nextVar exts
+
+      (nextModules, env'') <- finishModule moduleName' env'
+      inParallel . fmap (runModule env'') $ S.toList nextModules
+
+type ReverseDependencies = M.Map (S.Set ModuleName) (S.Set ModuleName)
+
+markFinished :: ModuleName -> ReverseDependencies -> ReverseDependencies
+markFinished mn = M.mapKeysWith (<>) (S.delete mn) . fmap (S.delete mn)
+
+findReady :: ReverseDependencies -> (S.Set ModuleName, ReverseDependencies)
+findReady rd = (fromMaybe S.empty $ M.lookup S.empty rd, M.delete S.empty rd)
+
+rebuild :: S.Set ModuleName -> ReverseDependencies -> ReverseDependencies
+rebuild mns = M.mapKeysWith (<>) (S.intersection mns)
+
+reverseDependencies :: ModuleGraph -> ReverseDependencies
+reverseDependencies g = M.fromListWith (<>) l
   where
-  combine :: (Ord a) => [(a, b)] -> M.Map a [b]
-  combine = M.fromList . map ((fst . head) &&& map snd) . groupBy ((==) `on` fst) . sortBy (compare `on` fst)
+  l :: [(S.Set ModuleName, S.Set ModuleName)]
+  l = (\(_, mn, deps) -> (S.fromList deps, S.singleton mn)) <$> g
 
 -- |
 -- Add an import declaration for a module if it does not already explicitly import it.

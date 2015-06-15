@@ -50,7 +50,7 @@ type Desugar = StateT MemberMap
 -- Add type synonym declarations for type class dictionary types, and value declarations for type class
 -- instance dictionary expressions.
 --
-desugarTypeClasses :: (Functor m, Applicative m, MonadSupply m, MonadError MultipleErrors m) => [Module] -> m [Module]
+desugarTypeClasses :: (Functor m, Applicative m, MonadSupply m, MonadError MultipleErrors m, Traversable f) => f Module -> m (f Module)
 desugarTypeClasses = flip evalStateT M.empty . mapM desugarModule
 
 desugarModule :: (Functor m, Applicative m, MonadSupply m, MonadError MultipleErrors m) => Module -> Desugar m Module
